@@ -159,6 +159,30 @@ async function loadModuleRecords(module){
  records[module]=(data||[]).map(x=>({id:x.id,values:x.payload?.values||[],created_by:x.created_by}));
  if(page===module){if(module==='Office Dashboard')render();else drawRecords();}
 }
+let officeBroadcastQueue=[],officeBroadcastIndex=0,officeBroadcastMessage='';
+function startFreeWhatsAppBroadcast(){
+ if(!['owner','admin'].includes(officeProfile?.role))return alert('Management access required');
+ const seen=new Set();
+ officeBroadcastQueue=list('Client Records').map(r=>({name:String(r.values[0]||'Customer'),phone:String(r.values[1]||'').replace(/[^0-9]/g,'')})).filter(r=>{if(r.phone.length<8||r.phone.length>15||seen.has(r.phone))return false;seen.add(r.phone);return true});
+ if(!officeBroadcastQueue.length)return alert('No customers with valid international WhatsApp numbers. Include country code.');
+ const message=prompt('Type the message for customers who agreed to receive WhatsApp updates. No passport or sensitive details:');
+ if(!message?.trim())return;
+ if(!confirm('Prepare '+officeBroadcastQueue.length+' WhatsApp messages? Each recipient must be opened and sent manually. Only proceed for customers who consented.'))return;
+ officeBroadcastMessage=message.trim();officeBroadcastIndex=0;showFreeWhatsAppBroadcast();
+}
+function showFreeWhatsAppBroadcast(){
+ const item=officeBroadcastQueue[officeBroadcastIndex];
+ if(!item)return alert('Broadcast assistant finished. WhatsApp delivery is not automatically verified.');
+ modal('Free WhatsApp Broadcast','<p><strong>Recipient '+(officeBroadcastIndex+1)+' of '+officeBroadcastQueue.length+'</strong></p><p>'+esc(item.name)+' · '+esc(item.phone)+'</p><p class="muted">Open WhatsApp, review and press Send there. Returning here and pressing Next does not verify delivery.</p><button class="action" onclick="openFreeWhatsAppRecipient()">Open WhatsApp</button><button class="ghost" onclick="nextFreeWhatsAppRecipient()">Next Recipient</button><button class="ghost" onclick="closeModal()">Pause</button>');
+}
+function openFreeWhatsAppRecipient(){
+ const item=officeBroadcastQueue[officeBroadcastIndex];if(!item)return;
+ const url='https://wa.me/'+item.phone+'?text='+encodeURIComponent(officeBroadcastMessage);
+ window.open(url,'_blank','noopener');
+}
+function nextFreeWhatsAppRecipient(){
+ officeBroadcastIndex++;if(officeBroadcastIndex>=officeBroadcastQueue.length){closeModal();alert('All recipients reviewed. Sending/delivery was not verified.');return;}showFreeWhatsAppBroadcast();
+}
 function shareClientWhatsApp(id){
  if(!officeProfile||!['owner','admin'].includes(officeProfile.role))return alert('Management access required');
  const r=list('Client Records').find(x=>x.id===id);if(!r)return;
@@ -169,7 +193,14 @@ function shareClientWhatsApp(id){
  if(custom===null||!custom.trim())return;
  window.open('https://wa.me/'+phone+'?text='+encodeURIComponent(custom.trim()),'_blank','noopener');
 }
-function drawRecords(){const el=document.getElementById('records');if(!el)return;const fs=fields[page]||[],q=searchText.toLowerCase();const rs=list(page).filter(r=>r.values.join(' ').toLowerCase().includes(q));el.innerHTML='<div class="muted" style="margin:8px 0">'+rs.length+' records</div>'+(rs.length?rs.map(r=>'<div class="record"><div class="row"><strong>'+esc(r.values[0])+'</strong><button class="ghost" onclick="removeEntry('+JSON.stringify(r.id).replace(/"/g,'&quot;')+')">Delete</button></div>'+fs.slice(1).map((f,i)=>r.values[i+1]?'<div class="record-line"><span>'+esc(f)+'</span><b>'+esc(r.values[i+1])+'</b></div>':'').join('')+'<span class="pill">'+'Shared Office Record'+'</span></div>').join(''):'<div class="empty">No records. Tap + New Entry to create one.</div>')}
+function drawRecords(){
+ const el=document.getElementById('records');if(!el)return;
+ const fs=fields[page]||[],q=searchText.toLowerCase();
+ const rs=list(page).filter(r=>r.values.join(' ').toLowerCase().includes(q));
+ const manager=['owner','admin'].includes(officeProfile?.role);
+ const bulk=page==='Client Records'&&manager?'<button class="action" onclick="startFreeWhatsAppBroadcast()">WhatsApp Broadcast Assistant</button><p class="muted">Free: prepare each message, then tap Send in WhatsApp. No automatic bulk sending.</p>':'';
+ el.innerHTML=bulk+'<div class="muted" style="margin:8px 0">'+rs.length+' records</div>'+(rs.length?rs.map(r=>'<div class="record"><div class="row"><strong>'+esc(r.values[0])+'</strong><span>'+(officeProfile?'<button class="ghost" onclick="editOfficeRecord('+JSON.stringify(r.id).replace(/"/g,'&quot;')+')">Edit</button>':'')+(manager?'<button class="ghost" onclick="removeEntry('+JSON.stringify(r.id).replace(/"/g,'&quot;')+')">Delete</button>':'')+'</span></div>'+fs.slice(1).map((f,i)=>r.values[i+1]?'<div class="record-line"><span>'+esc(f)+'</span><b>'+esc(r.values[i+1])+'</b></div>':'').join('')+(page==='Client Records'&&manager?'<button class="ghost" onclick="shareClientWhatsApp('+JSON.stringify(r.id).replace(/"/g,'&quot;')+')">WhatsApp</button>':'')+'<span class="pill">Shared Office Record</span></div>').join(''):'<div class="empty">No records. Tap + New Entry to create one.</div>');
+}
 async function editOfficeRecord(id){
  if(!officeClient||!officeProfile)return alert('Sign in first');
  const row=list(page).find(x=>x.id===id);if(!row)return;
