@@ -98,9 +98,9 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 let page=decodeURIComponent(location.hash.slice(1))||'Home',showForm=false,searchText='',positions={};
 const storeKey='ma-travels-office-demo-v2';
 let records={};try{records=JSON.parse(localStorage.getItem(storeKey)||'{}')}catch(e){}
-function list(n){if(!records[n])records[n]=(seed[n]||[]).map((v,i)=>({id:'sample-'+i,values:v}));return records[n]}
+function list(n){if(!records[n])records[n]=[];return records[n]}
 function persist(){try{localStorage.setItem(storeKey,JSON.stringify(records))}catch(e){}}
-function go(n){if(n!=='Home'&&n!=='Staff Permissions'&&!byName[n])return;positions[page]=document.getElementById('main').scrollTop;if(page==='Home'&&n!=='Home'&&n!=='Office Dashboard')lastSelectedModule=n;page=n;showForm=false;searchText='';history.pushState({page:n},'', '#'+encodeURIComponent(n));render()}
+function go(n){if(officeProfile && !['Home','Team Chat','Staff Directory','Marketing Hub','Staff Permissions','Office Dashboard'].includes(n))loadModuleRecords(n);if(n!=='Home'&&n!=='Staff Permissions'&&!byName[n])return;positions[page]=document.getElementById('main').scrollTop;if(page==='Home'&&n!=='Home'&&n!=='Office Dashboard')lastSelectedModule=n;page=n;showForm=false;searchText='';history.pushState({page:n},'', '#'+encodeURIComponent(n));render()}
 function back(){if(history.length>1)history.back();else go('Home')}
 window.addEventListener('popstate',()=>{page=decodeURIComponent(location.hash.slice(1))||'Home';showForm=false;searchText='';render()});
 function tile(n){const x=byName[n];return '<button class="tile'+(lastSelectedModule===n?' module-selected':'')+'" onclick="go('+JSON.stringify(n).replace(/"/g,'&quot;')+')"><span class="emoji">'+x[1]+'</span><span>'+esc(n)+'</span></button>'}
@@ -143,9 +143,28 @@ m.innerHTML=header(x)+'<div class="hero section-hero"><div class="muted">'+esc(x
 m.scrollTop=page==='Home'?0:(positions[page]||0);
 }
 function toggleForm(){showForm=!showForm;let el=document.getElementById('entry');if(el){el.style.display=showForm?'block':'none';if(showForm){el.scrollIntoView({behavior:'smooth',block:'nearest'})}}}
-function saveEntry(){const fs=fields[page]||['Name','Description','Status'];const v=fs.map((_,i)=>document.getElementById('field'+i).value.trim());if(!v[0])return alert('Please enter '+fs[0]);list(page).unshift({id:'entry-'+Date.now(),values:v});persist();showForm=false;document.getElementById('entry').style.display='none';drawRecords();alert('Demo entry saved on this device.')}
+async function saveEntry(){
+ if(!officeClient||!officeProfile)return alert('Sign in to save shared office records.');
+ const fs=fields[page]||['Name','Description','Status'],values=fs.map((_,i)=>document.getElementById('field'+i).value.trim());
+ if(!values[0])return alert('Please enter '+fs[0]);
+ const module=page;const {error}=await officeClient.from('office_records').insert({module,payload:{values},created_by:officeUser.id});
+ if(error)return alert('Save failed: '+error.message);
+ showForm=false;await loadModuleRecords(module);alert('Saved to shared office database.');
+}
+async function loadModuleRecords(module){
+ if(!officeClient||!officeProfile)return;
+ const {data,error}=await officeClient.from('office_records').select('id,payload,created_by,created_at').eq('module',module).is('deleted_at',null).order('created_at',{ascending:false});
+ if(error){console.error(error);return}
+ records[module]=(data||[]).map(x=>({id:x.id,values:x.payload?.values||[],created_by:x.created_by}));
+ if(page===module){if(module==='Office Dashboard')render();else drawRecords();}
+}
 function drawRecords(){const el=document.getElementById('records');if(!el)return;const fs=fields[page]||[],q=searchText.toLowerCase();const rs=list(page).filter(r=>r.values.join(' ').toLowerCase().includes(q));el.innerHTML='<div class="muted" style="margin:8px 0">'+rs.length+' records</div>'+(rs.length?rs.map(r=>'<div class="record"><div class="row"><strong>'+esc(r.values[0])+'</strong><button class="ghost" onclick="removeEntry('+JSON.stringify(r.id).replace(/"/g,'&quot;')+')">Delete</button></div>'+fs.slice(1).map((f,i)=>r.values[i+1]?'<div class="record-line"><span>'+esc(f)+'</span><b>'+esc(r.values[i+1])+'</b></div>':'').join('')+'<span class="pill">'+(String(r.id).startsWith('sample')?'Sample Record':'Local Demo Entry')+'</span></div>').join(''):'<div class="empty">No records. Tap + New Entry to create one.</div>')}
-function removeEntry(id){if(!confirm('Delete this demo record?'))return;records[page]=list(page).filter(r=>r.id!==id);persist();drawRecords()}
+async function removeEntry(id){
+ if(!officeProfile||!['owner','admin'].includes(officeProfile.role))return alert('Only management can delete records.');
+ if(!confirm('Archive this record? The audit history will be retained.'))return;
+ const {error}=await officeClient.from('office_records').update({deleted_at:new Date().toISOString()}).eq('id',id);
+ if(error)return alert(error.message);await loadModuleRecords(page);
+}
 const profileKey='ma-staff-directory-v1',chatKey='ma-office-chat-v1',marketingKey='ma-marketing-v1',noticeKey='ma-office-notice-v1';
 function loadLocal(k,fallback){try{return JSON.parse(localStorage.getItem(k)||'null')||fallback}catch(e){return fallback}}
 function saveLocal(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){alert('Local storage unavailable')}}
@@ -180,7 +199,7 @@ async function loadOfficeLive(){
   const {data,error}=await officeClient.from('office_staff').select('display_name,role,active').eq('user_id',officeUser.id).maybeSingle();
   if(!error&&data?.active){officeProfile=data;await refreshOfficeLive();officeChannel=officeClient.channel('ma-office-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'office_messages'},()=>refreshOfficeLive()).on('postgres_changes',{event:'INSERT',schema:'public',table:'office_notices'},()=>refreshOfficeLive()).subscribe();officePoll=setInterval(refreshOfficeLive,15000)}
  }
- if(document.getElementById('chatHistory')||document.getElementById('officeLoginBox'))renderChat(document.getElementById('main'));if(page==='Home'||page==='Staff Permissions')render();
+ if(officeProfile){for(const mod of modules.map(x=>x[0])){if(mod!==page)continue;await loadModuleRecords(mod)}}if(document.getElementById('chatHistory')||document.getElementById('officeLoginBox'))renderChat(document.getElementById('main'));if(page==='Home'||page==='Staff Permissions')render();
  updateOfficeSignal();
 }
 async function refreshOfficeLive(){
