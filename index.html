@@ -243,6 +243,20 @@ async function loadStaffControl(){
  const el=document.getElementById('staffControlList');if(!el)return;
  try{const {staff,pending}=await officeAdminCall({action:'list'});el.innerHTML=(staff||[]).map(x=>'<div class="record"><strong>'+esc(x.display_name)+'</strong><div class="muted">'+esc(x.user_id)+' · '+esc(x.role)+' · '+(x.active?'Active':'Inactive')+'</div>'+(x.role==='admin'?'':'<div class="toolbar" style="flex-wrap:wrap"><button class="ghost" onclick="editOfficeStaff(\''+x.user_id+'\',\''+encodeURIComponent(x.display_name)+'\',\''+x.role+'\')">Edit</button><button class="ghost" onclick="toggleOfficeStaff(\''+x.user_id+'\','+(!x.active)+')">'+(x.active?'Deactivate':'Activate')+'</button><button class="ghost" onclick="resetOfficeStaffPassword(\''+x.user_id+'\')">Password</button><button class="ghost" onclick="deleteOfficeStaff(\''+x.user_id+'\')">Delete</button></div>')+'</div>').join('')+'<h3>Pending Account Setup</h3>'+(pending||[]).map(p=>'<div class="record"><strong>'+esc(p.display_name)+'</strong><div class="muted">'+esc(p.designation)+' · '+esc(p.email)+' · '+esc(p.phone||'')+' · '+esc(p.intended_role)+'</div><button class="ghost" onclick="prefillPendingStaff(\''+encodeURIComponent(p.display_name)+'\',\''+encodeURIComponent(p.email)+'\',\''+p.intended_role+'\')">Set Login Password</button></div>').join('')}catch(e){el.textContent=e.message}
 }
+async function manageOfficePermissions(userId){
+ if(!officeProfile||!['owner','admin'].includes(officeProfile.role))return alert('Management only');
+ const modulesAllowed=modules.map(m=>m[0]).filter(n=>!['Home','Office Dashboard','Staff Permissions','Team Chat','Staff Directory','Marketing Hub'].includes(n));
+ const {data,error}=await officeClient.from('office_module_permissions').select('module,can_edit').eq('user_id',userId);
+ if(error)return alert(error.message);
+ const permitted=new Set((data||[]).filter(x=>x.can_edit).map(x=>x.module));
+ modal('Staff Edit Permissions','<p class="muted">Tick modules where this staff member may edit existing records. Creating new records is available by default. Staff cannot delete records.</p>'+modulesAllowed.map((n,i)=>'<label style="display:flex;align-items:center;gap:10px;padding:9px 0"><input type="checkbox" id="officeperm'+i+'" '+(permitted.has(n)?'checked':'')+'>'+esc(n)+'</label>').join('')+'<button class="action" onclick="saveOfficePermissions(\''+userId+'\')">Save Permissions</button>');
+}
+async function saveOfficePermissions(userId){
+ const names=modules.map(m=>m[0]).filter(n=>!['Home','Office Dashboard','Staff Permissions','Team Chat','Staff Directory','Marketing Hub'].includes(n));
+ const rows=names.map((module,i)=>({user_id:userId,module,can_edit:!!document.getElementById('officeperm'+i)?.checked}));
+ const {error}=await officeClient.from('office_module_permissions').upsert(rows,{onConflict:'user_id,module'});
+ if(error)return alert(error.message);closeModal();alert('Staff edit permissions updated');
+}
 function prefillPendingStaff(name,email,role){document.getElementById('staffNewName').value=decodeURIComponent(name);document.getElementById('staffNewEmail').value=decodeURIComponent(email);document.getElementById('staffNewRole').value=role;document.getElementById('staffNewPass').focus()}
 async function createOfficeStaff(){try{const name=document.getElementById('staffNewName').value,email=document.getElementById('staffNewEmail').value,password=document.getElementById('staffNewPass').value,role=document.getElementById('staffNewRole').value;await officeAdminCall({action:'create',name,email,password,role});document.getElementById('staffNewPass').value='';await loadStaffControl();alert('Staff account created')}catch(e){alert(e.message)}}
 async function editOfficeStaff(user_id,encodedName,role){const name=prompt('Staff name',decodeURIComponent(encodedName));if(name===null)return;const newRole=prompt('Role: staff or manager',role);if(newRole===null)return;try{await officeAdminCall({action:'update',user_id,name,role:newRole});await loadStaffControl()}catch(e){alert(e.message)}}
