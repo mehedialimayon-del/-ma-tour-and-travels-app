@@ -243,12 +243,67 @@ function editTicker(){if(officeProfile?.role!=='admin')return alert('Full Admin 
 async function saveTickerEdit(){if(officeProfile?.role!=='admin'||!officeClient||!officeUser)return alert('Full Admin required');const text=document.getElementById('noticeEditText').value.trim();if(!text)return alert('Write announcement first');const {error}=await officeClient.from('office_notices').insert({author_id:officeUser.id,body:text});if(error)return alert('Shared notice failed: '+error.message);notice={text,highlight:document.getElementById('noticeEditHighlight').value.trim(),color:document.getElementById('noticeEditColor').value,accent:document.getElementById('noticeEditAccent').value,bg:document.getElementById('noticeEditBg').value};saveLocal(noticeKey,notice);renderTicker();closeModal();await refreshOfficeLive()}
 function modal(title,html){let old=document.getElementById('officeModal');if(old)old.remove();const wrap=document.createElement('div');wrap.id='officeModal';wrap.className='modal-shade';wrap.innerHTML='<div class="modal-card"><div class="row"><h2>'+esc(title)+'</h2><button class="ghost" onclick="closeModal()">✕</button></div>'+html+'</div>';document.body.appendChild(wrap)}
 function closeModal(){document.getElementById('officeModal')?.remove()}
-function renderDirectory(m){m.innerHTML='<div class="row"><h1>👥 Staff Directory</h1><button class="action" onclick="staffModal()">+ Add Staff</button></div><div class="muted" style="margin-bottom:14px">Staff profiles and tap-to-call contacts • saved on this phone only</div><input id="staffSearch" class="input" placeholder="Search staff by name, role or department" oninput="drawStaff()"><div id="staffList"></div>';drawStaff()}
-const initialOfficeStaff=[{name:'BM ANWAR PERVEJ',role:'MANAGING DIRECTOR',department:'Management',phone:'+601111005051',email:'matravels.pervej@gmail.com'},{name:'RAKIBUL ALAM',role:'ASSISTANT GENERAL MANAGER',department:'Management',phone:'+60167442540',email:'matravels.rakib@gmail.com'},{name:'NUSRAT NASRIN',role:'SENIOR OFFICER (SALES & MARKETING)',department:'Sales & Marketing',phone:'+60102705052',email:'matravels.nusrat@gmail.com'}];
-function drawStaff(){const el=document.getElementById('staffList');if(!el)return;const q=(document.getElementById('staffSearch')?.value||'').toLowerCase();const arr=[...initialOfficeStaff.map(p=>({...p,i:-1})),...profiles.map((p,i)=>({...p,i}))].filter(p=>[p.name,p.role,p.department,p.phone,p.email].join(' ').toLowerCase().includes(q));el.innerHTML=arr.length?arr.map(p=>'<div class="staff-card"><div class="staff-avatar">'+(p.photo?'<img src="'+esc(p.photo)+'" alt="Staff photo">':'👤')+'</div><div class="staff-info"><b>'+esc(p.name)+'</b><small>'+esc(p.role)+' • '+esc(p.department)+'</small><div class="staff-actions"><a href="tel:'+encodeURIComponent(p.phone)+'">📞 Call</a><a href="mailto:'+encodeURIComponent(p.email)+'">✉ Email</a><a href="https://wa.me/'+encodeURIComponent(p.phone.replace(/[^0-9]/g,''))+'">WhatsApp</a><button onclick="staffModal('+p.i+')">Edit</button></div></div></div>').join(''):'<div class="empty">No staff records yet. Tap Add Staff to create a profile.</div>'}
-function staffModal(i=-1){const p=profiles[i]||{};modal(i<0?'Add Staff Profile':'Edit Staff Profile','<div class="formgrid">'+[['Name','name'],['Designation','role'],['Department','department'],['Phone (country code)','phone'],['Email','email']].map(([label,key])=>'<label>'+label+'<input class="input" id="staff_'+key+'" value="'+esc(p[key]||'')+'"></label>').join('')+'<label>Profile Photo<input type="file" accept="image/*" id="staffPhoto"></label><button class="action" onclick="saveStaff('+i+')">Save Profile</button>'+(i>=0?'<button class="ghost" onclick="deleteStaff('+i+')">Delete Profile</button>':'')+'</div>')}
-function saveStaff(i){const p={};for(const k of ['name','role','department','phone','email'])p[k]=document.getElementById('staff_'+k).value.trim();if(!p.name)return alert('Enter staff name');p.photo=profiles[i]?.photo||'';const file=document.getElementById('staffPhoto').files[0];const finish=()=>{if(i>=0)profiles[i]=p;else profiles.push(p);saveLocal(profileKey,profiles);closeModal();renderDirectory(document.getElementById('main'))};if(file){if(file.size>350000)return alert('Please choose a photo under 350 KB');const reader=new FileReader();reader.onload=()=>{p.photo=reader.result;finish()};reader.readAsDataURL(file)}else finish()}
-function deleteStaff(i){if(!confirm('Delete this profile?'))return;profiles.splice(i,1);saveLocal(profileKey,profiles);closeModal();renderDirectory(document.getElementById('main'))}
+let officeDirectory=[],officeDirectoryCanManage=false;
+async function loadOfficeDirectory(){
+ if(!officeClient||!officeProfile){officeDirectory=[];officeDirectoryCanManage=false;drawStaff();return}
+ const [contacts,access]=await Promise.all([
+  officeClient.from('office_directory_contacts').select('*').order('name'),
+  officeClient.from('office_directory_access').select('can_manage').eq('user_id',officeUser.id).maybeSingle()
+ ]);
+ if(contacts.error){console.error('Directory:',contacts.error.message);return}
+ officeDirectory=contacts.data||[];
+ officeDirectoryCanManage=['owner','admin'].includes(officeProfile.role)||!!access.data?.can_manage;
+ drawStaff();
+}
+function renderDirectory(m){
+ m.innerHTML='<div class="row"><h1>👥 Management & Staff Directory</h1><button class="action" id="directoryAdd" onclick="staffModal()">+ Add Contact</button></div><div class="muted" style="margin-bottom:14px">Shared office directory • WhatsApp, telephone, email and profile photos</div><input id="staffSearch" class="input" placeholder="Search by name, designation or department" oninput="drawStaff()"><div id="staffList"></div>';
+ drawStaff();loadOfficeDirectory();
+}
+function drawStaff(){
+ const el=document.getElementById('staffList');if(!el)return;
+ const add=document.getElementById('directoryAdd');if(add)add.style.display=officeDirectoryCanManage?'':'none';
+ const q=(document.getElementById('staffSearch')?.value||'').toLowerCase();
+ const arr=officeDirectory.filter(p=>[p.name,p.designation,p.department,p.phone,p.whatsapp,p.email].join(' ').toLowerCase().includes(q));
+ el.innerHTML=arr.length?arr.map(p=>{
+ const id=JSON.stringify(p.id).replace(/"/g,'&quot;'),tel=String(p.phone||'').replace(/[^+0-9]/g,''),wa=String(p.whatsapp||p.phone||'').replace(/[^0-9]/g,'');
+ return '<div class="staff-card"><div class="staff-avatar">'+(p.photo_data?'<img src="'+esc(p.photo_data)+'" alt="Staff photo">':'👤')+'</div><div class="staff-info"><b>'+esc(p.name)+'</b><small>'+esc(p.designation)+' • '+esc(p.department)+'</small><div class="staff-actions">'+(tel?'<a href="tel:'+encodeURIComponent(tel)+'">📞 Call</a>':'')+(p.email?'<a href="mailto:'+encodeURIComponent(p.email)+'">✉ Email</a>':'')+(wa?'<a target="_blank" rel="noopener" href="https://wa.me/'+wa+'">WhatsApp</a>':'')+(officeDirectoryCanManage?'<button onclick="staffModal('+id+')">Edit</button>':'')+'</div></div></div>'
+ }).join(''):'<div class="empty">No shared directory contacts found.</div>';
+}
+function staffModal(id=null){
+ if(!officeDirectoryCanManage)return alert('Directory edit access required');
+ const p=officeDirectory.find(x=>x.id===id)||{};
+ modal(id?'Edit Directory Contact':'Add Directory Contact','<div class="formgrid">'+[['Name','name'],['Designation','designation'],['Department','department'],['Phone (with country code)','phone'],['WhatsApp (with country code)','whatsapp'],['Email','email']].map(([label,key])=>'<label>'+label+'<input class="input" id="staff_'+key+'" value="'+esc(p[key]||'')+'"></label>').join('')+'<label>Profile Photo (max 150 KB)<input type="file" accept="image/png,image/jpeg,image/webp" id="staffPhoto"></label><button class="action" onclick="saveStaff('+JSON.stringify(id).replace(/"/g,'&quot;')+')">Save Contact</button>'+(id&&['owner','admin'].includes(officeProfile?.role)?'<button class="ghost" onclick="deleteStaff('+JSON.stringify(id).replace(/"/g,'&quot;')+')">Delete Contact</button>':'')+'</div>');
+}
+async function saveStaff(id){
+ if(!officeDirectoryCanManage||!officeClient)return alert('Directory edit access required');
+ const p={};for(const k of ['name','designation','department','phone','whatsapp','email'])p[k]=document.getElementById('staff_'+k).value.trim();
+ if(!p.name)return alert('Enter a name');
+ const file=document.getElementById('staffPhoto')?.files[0];
+ const existing=officeDirectory.find(x=>x.id===id);p.photo_data=existing?.photo_data||'';
+ if(file){
+  if(file.size>150000)return alert('Choose a JPG, PNG or WebP image under 150 KB');
+  if(!['image/jpeg','image/png','image/webp'].includes(file.type))return alert('Unsupported photo type');
+  p.photo_data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(file)});
+ }
+ if(!confirm('Save this contact to the shared office directory?'))return;
+ const result=id?await officeClient.from('office_directory_contacts').update(p).eq('id',id):await officeClient.from('office_directory_contacts').insert(p);
+ if(result.error)return alert('Save failed: '+result.error.message);
+ closeModal();await loadOfficeDirectory();
+}
+async function deleteStaff(id){
+ if(!['owner','admin'].includes(officeProfile?.role))return alert('Management only');
+ if(!confirm('Delete this directory contact?'))return;
+ const {error}=await officeClient.from('office_directory_contacts').delete().eq('id',id);
+ if(error)return alert(error.message);closeModal();await loadOfficeDirectory();
+}
+async function setDirectoryAccess(userId){
+ if(!['owner','admin'].includes(officeProfile?.role))return;
+ const {data,error}=await officeClient.from('office_directory_access').select('can_manage').eq('user_id',userId).maybeSingle();
+ if(error)return alert(error.message);
+ const enable=confirm('Allow this staff member to ADD and EDIT shared directory contacts?\nOK = allow, Cancel = remove access');
+ const {error:saveError}=await officeClient.from('office_directory_access').upsert({user_id:userId,can_manage:enable},{onConflict:'user_id'});
+ alert(saveError?'Permission failed: '+saveError.message:'Directory edit permission '+(enable?'enabled':'disabled'));
+}
 const officeUrl='https://rdiqkzspipnqdtatmflv.supabase.co';
 const officeKey='sb_publishable_yF2aqjoBydLwkXmAPUK_CA_ZyfwOSgm';
 let officeClient=null,officeUser=null,officeProfile=null,officeMessages=[],officeNotices=[],officeChannel=null,officePoll=null;
@@ -298,7 +353,7 @@ function renderStaffControl(m){
 }
 async function loadStaffControl(){
  const el=document.getElementById('staffControlList');if(!el)return;
- try{const {staff,pending}=await officeAdminCall({action:'list'});el.innerHTML=(staff||[]).map(x=>'<div class="record"><strong>'+esc(x.display_name)+'</strong><div class="muted">'+esc(x.user_id)+' · '+esc(x.role)+' · '+(x.active?'Active':'Inactive')+'</div>'+(x.role==='admin'?'':'<div class="toolbar" style="flex-wrap:wrap"><button class="ghost" onclick="editOfficeStaff(\''+x.user_id+'\',\''+encodeURIComponent(x.display_name)+'\',\''+x.role+'\')">Edit</button><button class="ghost" onclick="toggleOfficeStaff(\''+x.user_id+'\','+(!x.active)+')">'+(x.active?'Deactivate':'Activate')+'</button><button class="ghost" onclick="resetOfficeStaffPassword(\''+x.user_id+'\')">Password</button><button class="ghost" onclick="deleteOfficeStaff(\''+x.user_id+'\')">Delete</button><button class="ghost" onclick="manageOfficePermissions(\''+x.user_id+'\')">Permissions</button></div>')+'</div>').join('')+'<h3>Pending Account Setup</h3>'+(pending||[]).map(p=>'<div class="record"><strong>'+esc(p.display_name)+'</strong><div class="muted">'+esc(p.designation)+' · '+esc(p.email)+' · '+esc(p.phone||'')+' · '+esc(p.intended_role)+'</div><button class="ghost" onclick="prefillPendingStaff(\''+encodeURIComponent(p.display_name)+'\',\''+encodeURIComponent(p.email)+'\',\''+p.intended_role+'\')">Set Login Password</button></div>').join('')}catch(e){el.textContent=e.message}
+ try{const {staff,pending}=await officeAdminCall({action:'list'});el.innerHTML=(staff||[]).map(x=>'<div class="record"><strong>'+esc(x.display_name)+'</strong><div class="muted">'+esc(x.user_id)+' · '+esc(x.role)+' · '+(x.active?'Active':'Inactive')+'</div>'+(x.role==='admin'?'':'<div class="toolbar" style="flex-wrap:wrap"><button class="ghost" onclick="editOfficeStaff(\''+x.user_id+'\',\''+encodeURIComponent(x.display_name)+'\',\''+x.role+'\')">Edit</button><button class="ghost" onclick="toggleOfficeStaff(\''+x.user_id+'\','+(!x.active)+')">'+(x.active?'Deactivate':'Activate')+'</button><button class="ghost" onclick="resetOfficeStaffPassword(\''+x.user_id+'\')">Password</button><button class="ghost" onclick="deleteOfficeStaff(\''+x.user_id+'\')">Delete</button><button class="ghost" onclick="manageOfficePermissions(\''+x.user_id+'\')">Permissions</button><button class="ghost" onclick="setDirectoryAccess(\''+x.user_id+'\')">Directory Access</button></div>')+'</div>').join('')+'<h3>Pending Account Setup</h3>'+(pending||[]).map(p=>'<div class="record"><strong>'+esc(p.display_name)+'</strong><div class="muted">'+esc(p.designation)+' · '+esc(p.email)+' · '+esc(p.phone||'')+' · '+esc(p.intended_role)+'</div><button class="ghost" onclick="prefillPendingStaff(\''+encodeURIComponent(p.display_name)+'\',\''+encodeURIComponent(p.email)+'\',\''+p.intended_role+'\')">Set Login Password</button></div>').join('')}catch(e){el.textContent=e.message}
 }
 async function manageOfficePermissions(userId){
  if(!officeProfile||!['owner','admin'].includes(officeProfile.role))return alert('Management only');
