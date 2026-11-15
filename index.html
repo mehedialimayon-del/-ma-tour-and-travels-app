@@ -47,6 +47,9 @@ header .logo-viewport .real-header-logo{
  transform:translate(calc(-50% - 9px),-50%) scale(1.32)!important;
  transform-origin:center center!important;
 }
+/* Move the logo's entire visual viewport left, not just its clipped GIF.
+   Transform doesn't affect divider/title positions or header size. */
+header .logo-viewport{transform:translateX(-8px)!important;transform-origin:center center!important}
 /* Touch and selected-module feedback; dimensions remain unchanged. */
 .home-module-grid .tile,.home-dashboard,.nav button{
  transition:background-color .16s ease,box-shadow .16s ease,border-color .16s ease,filter .16s ease!important;
