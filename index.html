@@ -322,7 +322,7 @@ async function loadOfficeLive(){
   const {data,error}=await officeClient.from('office_staff').select('display_name,role,active').eq('user_id',officeUser.id).maybeSingle();
   if(!error&&data?.active){officeProfile=data;await refreshOfficeLive();officeChannel=officeClient.channel('ma-office-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'office_messages'},()=>refreshOfficeLive()).on('postgres_changes',{event:'INSERT',schema:'public',table:'office_notices'},()=>refreshOfficeLive()).subscribe();officePoll=setInterval(refreshOfficeLive,15000)}
  }
- if(officeProfile&&byName[page])await loadModuleRecords(page)if(document.getElementById('chatHistory')||document.getElementById('officeLoginBox'))renderChat(document.getElementById('main'));if(page==='Home'||page==='Staff Permissions')render();
+ if(officeProfile&&byName[page])await loadModuleRecords(page);if(document.getElementById('chatHistory')||document.getElementById('officeLoginBox'))renderChat(document.getElementById('main'));if(page==='Home'||page==='Staff Permissions')render();
  updateOfficeSignal();
 }
 async function refreshOfficeLive(){
