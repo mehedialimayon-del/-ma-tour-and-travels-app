@@ -80,14 +80,14 @@ const officeSeenKey='ma_office_seen_notifications_v1';
 let officeSeen=Number(localStorage.getItem(officeSeenKey)||0);
 function currentOfficeSignal(){return Math.max(0,chatMessages.length-officeSeen)}
 function updateOfficeSignal(){
- const count=currentOfficeSignal(),b=document.getElementById('officeNoticeBadge');
+ const count=officeProfile?Math.max(0,officeMessages.length-officeSeen):0,b=document.getElementById('officeNoticeBadge');
  if(b){b.textContent=count>9?'9+':String(count);b.classList.toggle('visible',count>0)}
  const chatButton=[...document.querySelectorAll('#nav button')].find(x=>x.textContent.includes('Chat'));
  if(chatButton){let dot=chatButton.querySelector('.nav-dot');if(count&&!dot){dot=document.createElement('span');dot.className='nav-dot';chatButton.appendChild(dot)}else if(!count&&dot)dot.remove()}
 }
 function openOfficeNotifications(){
- const count=currentOfficeSignal();
- modal('🔔 Office Notifications','<div class="notice">Notification signals currently reflect this device only. Shared notifications will activate after a secure office backend is connected.</div><div class="record"><strong>💬 Team Chat</strong><p>'+count+' unread local message(s)</p><button class="action" onclick="closeModal();go(\'Team Chat\')">Open Chat</button></div><div class="record"><strong>📢 Live Notice</strong><p>'+esc(notice.text||'No announcement')+'</p></div><button class="ghost" onclick="officeSeen=chatMessages.length;localStorage.setItem(officeSeenKey,officeSeen);updateOfficeSignal();closeModal()">Mark local messages read</button>');
+ const count=officeProfile?Math.max(0,officeMessages.length-officeSeen):0;
+ modal('🔔 Office Notifications','<div class="notice">Shared office notifications require an approved staff login.</div><div class="record"><strong>💬 Team Chat</strong><p>'+count+' unread office message(s)</p><button class="action" onclick="closeModal();go(\'Team Chat\')">Open Chat</button></div><div class="record"><strong>📢 Live Notice</strong><p>'+esc(officeNotices[0]?.body||'No shared notice yet')+'</p></div><button class="ghost" onclick="officeSeen=chatMessages.length;localStorage.setItem(officeSeenKey,officeSeen);updateOfficeSignal();closeModal()">Mark messages read</button>');
 }
 
 let lastSelectedModule='';
@@ -161,11 +161,43 @@ function drawStaff(){const el=document.getElementById('staffList');if(!el)return
 function staffModal(i=-1){const p=profiles[i]||{};modal(i<0?'Add Staff Profile':'Edit Staff Profile','<div class="formgrid">'+[['Name','name'],['Designation','role'],['Department','department'],['Phone (country code)','phone'],['Email','email']].map(([label,key])=>'<label>'+label+'<input class="input" id="staff_'+key+'" value="'+esc(p[key]||'')+'"></label>').join('')+'<label>Profile Photo<input type="file" accept="image/*" id="staffPhoto"></label><button class="action" onclick="saveStaff('+i+')">Save Profile</button>'+(i>=0?'<button class="ghost" onclick="deleteStaff('+i+')">Delete Profile</button>':'')+'</div>')}
 function saveStaff(i){const p={};for(const k of ['name','role','department','phone','email'])p[k]=document.getElementById('staff_'+k).value.trim();if(!p.name)return alert('Enter staff name');p.photo=profiles[i]?.photo||'';const file=document.getElementById('staffPhoto').files[0];const finish=()=>{if(i>=0)profiles[i]=p;else profiles.push(p);saveLocal(profileKey,profiles);closeModal();renderDirectory(document.getElementById('main'))};if(file){if(file.size>350000)return alert('Please choose a photo under 350 KB');const reader=new FileReader();reader.onload=()=>{p.photo=reader.result;finish()};reader.readAsDataURL(file)}else finish()}
 function deleteStaff(i){if(!confirm('Delete this profile?'))return;profiles.splice(i,1);saveLocal(profileKey,profiles);closeModal();renderDirectory(document.getElementById('main'))}
-function renderChat(m){officeSeen=chatMessages.length;localStorage.setItem(officeSeenKey,officeSeen);updateOfficeSignal();m.innerHTML='<div class="row"><h1>💬 Team Chat</h1><span class="pill">LOCAL DEMO</span></div><div class="notice">Messages are stored on this phone only. This is not live multi-user WhatsApp messaging.</div><div class="chat-shell"><div class="chat-history" id="chatHistory"></div><div class="chat-compose"><input class="input" id="chatName" placeholder="Your name" value="Office Staff"><input class="input" id="chatInput" placeholder="Type office message..." onkeydown="if(event.key===\'Enter\')sendChat()"><button class="action" onclick="sendChat()">Send</button></div></div>';drawChat()}
-function drawChat(){const el=document.getElementById('chatHistory');if(!el)return;el.innerHTML=chatMessages.length?chatMessages.map(c=>'<div class="chat-bubble"><b>'+esc(c.name)+'</b><p>'+esc(c.text)+'</p><small>'+esc(c.time)+'</small></div>').join(''):'<div class="empty">No messages yet. Start a demo conversation.</div>';el.scrollTop=el.scrollHeight}
-function sendChat(){const name=document.getElementById('chatName').value.trim()||'Staff',input=document.getElementById('chatInput'),text=input.value.trim();if(!text)return;chatMessages.push({name,text,time:new Date().toLocaleString()});saveLocal(chatKey,chatMessages);input.value='';drawChat();updateOfficeSignal()}
+const officeUrl='https://rdiqkzspipnqdtatmflv.supabase.co';
+const officeKey='sb_publishable_yF2aqjoBydLwkXmAPUK_CA_ZyfwOSgm';
+let officeClient=null,officeUser=null,officeProfile=null,officeMessages=[],officeNotices=[],officeChannel=null,officePoll=null;
+async function initOfficeLive(){
+ if(!window.supabase){setTimeout(initOfficeLive,2500);return}
+ officeClient=window.supabase.createClient(officeUrl,officeKey,{auth:{persistSession:true,autoRefreshToken:true}});
+ officeClient.auth.onAuthStateChange((_event,session)=>{officeUser=session?.user||null;setTimeout(()=>loadOfficeLive(),0)});
+ const {data}=await officeClient.auth.getSession();officeUser=data.session?.user||null;await loadOfficeLive();
+}
+async function loadOfficeLive(){
+ if(!officeClient)return;
+ if(officeChannel){await officeClient.removeChannel(officeChannel);officeChannel=null}
+ if(officePoll){clearInterval(officePoll);officePoll=null}
+ officeProfile=null;officeMessages=[];officeNotices=[];
+ if(officeUser){
+  const {data,error}=await officeClient.from('office_staff').select('display_name,role,active').eq('user_id',officeUser.id).maybeSingle();
+  if(!error&&data?.active){officeProfile=data;await refreshOfficeLive();officeChannel=officeClient.channel('ma-office-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'office_messages'},()=>refreshOfficeLive()).on('postgres_changes',{event:'INSERT',schema:'public',table:'office_notices'},()=>refreshOfficeLive()).subscribe();officePoll=setInterval(refreshOfficeLive,15000)}
+ }
+ if(document.getElementById('chatHistory')||document.getElementById('officeLoginBox'))renderChat(document.getElementById('main'));
+ updateOfficeSignal();
+}
+async function refreshOfficeLive(){
+ if(!officeClient||!officeProfile)return;
+ const [messages,notices]=await Promise.all([officeClient.from('office_messages').select('id,sender_name,body,created_at').order('id',{ascending:false}).limit(100),officeClient.from('office_notices').select('id,body,created_at').order('id',{ascending:false}).limit(20)]);
+ if(!messages.error)officeMessages=(messages.data||[]).reverse();
+ if(!notices.error)officeNotices=notices.data||[];
+ drawChat();updateOfficeSignal();
+}
+function officeLoginForm(){return '<div id="officeLoginBox" class="record"><h2>🔐 Office Staff Login</h2><p class="muted">Only approved staff accounts can access shared messages and notices.</p><input class="input" id="officeEmail" type="email" placeholder="Staff email"><input class="input" id="officePassword" type="password" placeholder="Password" style="margin:9px 0"><button class="action" onclick="officeSignIn()">Sign In</button><div id="officeAuthError" class="muted" style="margin-top:9px"></div></div>'}
+async function officeSignIn(){if(!officeClient)return alert('Connection is loading. Try again.');const email=document.getElementById('officeEmail').value.trim(),password=document.getElementById('officePassword').value;const {error}=await officeClient.auth.signInWithPassword({email,password});if(error)document.getElementById('officeAuthError').textContent=error.message;else await loadOfficeLive()}
+async function officeSignOut(){await officeClient?.auth.signOut();officeUser=null;officeProfile=null;await loadOfficeLive()}
+function renderChat(m){if(!m)return;const header='<div class="row"><h1>💬 Team Chat</h1><span class="pill">'+(officeProfile?'LIVE OFFICE':'SECURE LOGIN')+'</span></div>';if(!officeProfile){m.innerHTML=header+(officeUser?'<div class="notice">Your account is not yet approved as an active office staff member. Ask an administrator to add it.</div><button class="ghost" onclick="officeSignOut()">Sign Out</button>':officeLoginForm());return}m.innerHTML=header+'<div class="row"><span class="chat-status">🟢 '+esc(officeProfile.display_name)+' · Shared office chat</span><button class="ghost" onclick="officeSignOut()">Sign Out</button></div><div class="chat-shell"><div class="chat-history" id="chatHistory"></div><div class="chat-compose"><input class="input" id="chatInput" placeholder="Message all staff..." onkeydown="if(event.key===\'Enter\')sendChat()"><button class="action" onclick="sendChat()">Send</button></div></div>';drawChat();officeSeen=officeMessages.length;localStorage.setItem(officeSeenKey,officeSeen);updateOfficeSignal()}
+function drawChat(){const el=document.getElementById('chatHistory');if(!el)return;el.innerHTML=officeMessages.length?officeMessages.map(c=>'<div class="chat-bubble"><b>'+esc(c.sender_name)+'</b><p>'+esc(c.body)+'</p><small>'+new Date(c.created_at).toLocaleString()+'</small></div>').join(''):'<div class="empty">No shared messages yet.</div>';el.scrollTop=el.scrollHeight}
+async function sendChat(){if(!officeClient||!officeProfile)return;const input=document.getElementById('chatInput'),body=input?.value.trim();if(!body)return;const {error}=await officeClient.from('office_messages').insert({sender_id:officeUser.id,sender_name:officeProfile.display_name,body});if(error)return alert('Message not sent: '+error.message);input.value='';await refreshOfficeLive()}
+async function publishOfficeNotice(){if(!officeProfile||!['admin','manager'].includes(officeProfile.role))return alert('Manager permission required');const body=prompt('Write shared office notice');if(!body?.trim())return;const {error}=await officeClient.from('office_notices').insert({author_id:officeUser.id,body:body.trim()});if(error)alert(error.message);else await refreshOfficeLive()}
 function renderMarketing(m){m.innerHTML='<div class="row"><h1>📣 Marketing Hub</h1><button class="action" onclick="marketingModal()">+ Campaign</button></div><div class="muted">Plan campaigns, record leads and track follow-ups on this device</div><div class="stats" style="margin-top:14px"><div class="card"><div class="muted">Campaigns</div><div class="statvalue">'+campaigns.length+'</div></div><div class="card"><div class="muted">Leads</div><div class="statvalue">'+campaigns.reduce((a,c)=>a+(Number(c.leads)||0),0)+'</div></div></div>'+ (campaigns.length?campaigns.map((c,i)=>'<div class="record"><strong>'+esc(c.title)+'</strong><div class="record-line"><span>Channel</span><b>'+esc(c.channel)+'</b></div><div class="record-line"><span>Leads</span><b>'+esc(c.leads)+'</b></div><div class="record-line"><span>Status</span><b>'+esc(c.status)+'</b></div><div class="record-line"><span>Next Follow-up</span><b>'+esc(c.followup)+'</b></div><button class="ghost" onclick="marketingModal('+i+')">Edit</button></div>').join(''):'<div class="empty">No campaigns yet. Create a marketing campaign.</div>')}
 function marketingModal(i=-1){const c=campaigns[i]||{};modal('Marketing Campaign','<div class="formgrid">'+[['Campaign Name','title'],['Channel / Platform','channel'],['Lead Count','leads'],['Status','status'],['Next Follow-up','followup']].map(([label,k])=>'<label>'+label+'<input class="input" id="campaign_'+k+'" value="'+esc(c[k]||'')+'"></label>').join('')+'<button class="action" onclick="saveCampaign('+i+')">Save Campaign</button></div>')}
 function saveCampaign(i){const c={};for(const k of ['title','channel','leads','status','followup'])c[k]=document.getElementById('campaign_'+k).value.trim();if(!c.title)return alert('Enter campaign name');if(i>=0)campaigns[i]=c;else campaigns.push(c);saveLocal(marketingKey,campaigns);closeModal();renderMarketing(document.getElementById('main'))}
-renderTicker();render();
+renderTicker();render();initOfficeLive();
 </script></body></html>
