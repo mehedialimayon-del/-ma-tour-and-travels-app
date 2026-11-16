@@ -322,7 +322,7 @@ const officeUrl='https://rdiqkzspipnqdtatmflv.supabase.co';
 const officeKey='sb_publishable_yF2aqjoBydLwkXmAPUK_CA_ZyfwOSgm';
 let officeClient=null,officeUser=null,officeProfile=null,officeMessages=[],officeNotices=[],officeChannel=null,officePoll=null;
 async function initOfficeLive(){
- if(!window.supabase){setTimeout(initOfficeLive,2500);return}
+ if(!window.supabase){const box=document.getElementById('officeAuthError');if(box)box.textContent='Office connection unavailable. Check internet access and reload.';setTimeout(initOfficeLive,5000);return}
  officeClient=window.supabase.createClient(officeUrl,officeKey,{auth:{persistSession:true,autoRefreshToken:true}});
  officeClient.auth.onAuthStateChange((event,session)=>{officeUser=session?.user||null;setTimeout(()=>loadOfficeLive(),0);if(event==='PASSWORD_RECOVERY')setTimeout(finishOfficePasswordRecovery,500)});
  const {data}=await officeClient.auth.getSession();officeUser=data.session?.user||null;await loadOfficeLive();
