@@ -100,9 +100,9 @@ const storeKey='ma-travels-office-demo-v2';
 let records={};
 function list(n){if(!records[n])records[n]=[];return records[n]}
 function persist(){}
-function go(n){if(n!=='Home'&&n!=='Staff Permissions'&&!byName[n])return;positions[page]=document.getElementById('main').scrollTop;if(page==='Home'&&n!=='Home'&&n!=='Office Dashboard')lastSelectedModule=n;page=n;sessionStorage.setItem('maOfficeCurrentPage',n);showForm=false;searchText='';history.pushState({page:n},'', '#'+encodeURIComponent(n));render();if(officeProfile && byName[n] && !['Home','Team Chat','Staff Directory','Marketing Hub','Staff Permissions'].includes(n))loadModuleRecords(n)}
+function go(n){if(n!=='Home'&&n!=='Staff Permissions'&&!byName[n])return;positions[page]=document.getElementById('main').scrollTop;if(page==='Home'&&n!=='Home'&&n!=='Office Dashboard')lastSelectedModule=n;page=n;sessionStorage.setItem('maOfficeCurrentPage',n);showForm=false;searchText='';history.pushState({page:n},'', '#'+encodeURIComponent(n));render();if(officeProfile&&n==='Marketing Hub')loadCampaigns();else if(officeProfile&&n==='Office Dashboard')loadDashboardRecords();else if(officeProfile&&byName[n]&&!['Home','Team Chat','Staff Directory','Staff Permissions'].includes(n))loadModuleRecords(n)}
 function back(){if(history.length>1)history.back();else go('Home')}
-window.addEventListener('popstate',()=>{page=decodeURIComponent(location.hash.slice(1))||'Home';sessionStorage.setItem('maOfficeCurrentPage',page);showForm=false;searchText='';render();if(officeProfile&&byName[page])loadModuleRecords(page)});
+window.addEventListener('popstate',()=>{page=decodeURIComponent(location.hash.slice(1))||'Home';sessionStorage.setItem('maOfficeCurrentPage',page);showForm=false;searchText='';render();if(officeProfile&&page==='Marketing Hub')loadCampaigns();else if(officeProfile&&page==='Office Dashboard')loadDashboardRecords();else if(officeProfile&&byName[page])loadModuleRecords(page)});
 function tile(n){const x=byName[n];return '<button class="tile'+(lastSelectedModule===n?' module-selected':'')+'" onclick="go('+JSON.stringify(n).replace(/"/g,'&quot;')+')"><span class="emoji">'+x[1]+'</span><span>'+esc(n)+'</span></button>'}
 function statGrid(arr){return '<div class="stats">'+arr.map(z=>{let a=z.split('|');return '<div class="card"><div class="muted">'+esc(a[0])+'</div><div class="statvalue">'+esc(a[1]||'—')+'</div></div>'}).join('')+'</div>'}
 function header(x){return '<div class="topline"><div><button class="back" onclick="back()">‹ Back to previous page</button><h1 style="margin-top:12px">'+x[1]+' '+esc(x[0])+'</h1><div class="muted">'+esc(x[3])+'</div></div><span class="pill">'+esc(x[2])+'</span></div>'}
@@ -122,16 +122,16 @@ const present=staffRows.filter(r=>/present|late/i.test(r.values[4]||'')).length;
 const tickets=ticketRows.length,activeVisa=visaRows.filter(r=>!/approved|rejected|withdrawn/i.test(r.values[4]||'')).length;
 const pct=(n,total)=>Math.round(n/Math.max(total,1)*100);
 const bar=(name,n,total,color)=>'<div class="bar-row"><div class="row"><span>'+esc(name)+'</span><b>'+n+'</b></div><div class="bar-track"><div class="bar-fill" style="width:'+Math.min(100,pct(n,total))+'%;background:'+color+'"></div></div></div>';
-const trend=[35,52,41,68,60,84,73],pts=trend.map((v,i)=>(i*45+10)+','+(110-v)).join(' ');
-const lineChart='<svg viewBox="0 0 310 135" class="trend-chart" aria-label="Illustrative seven-day sales trend"><defs><linearGradient id="chartfade" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#1645ff" stop-opacity=".38"/><stop offset="1" stop-color="#1645ff" stop-opacity="0"/></linearGradient></defs><path d="M10 110 L'+pts.replace(/ /g,' L')+' L280 125 L10 125 Z" fill="url(#chartfade)"/><polyline points="'+pts+'" fill="none" stroke="#ff791f" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>'+trend.map((v,i)=>'<circle cx="'+(i*45+10)+'" cy="'+(110-v)+'" r="3.5" fill="#ff791f"/>').join('')+'<text x="8" y="132">Mon</text><text x="264" y="132">Sun</text></svg>';
+const trend=Array.from({length:7},(_,i)=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-(6-i));return profitRows.filter(r=>{const stamp=r.created_at;if(!stamp)return false;const dt=new Date(stamp);return dt.toDateString()===d.toDateString()}).reduce((a,r)=>a+(parseFloat(String(r.values[2]||0).replace(/[^0-9.-]/g,''))||0)+(parseFloat(String(r.values[3]||0).replace(/[^0-9.-]/g,''))||0),0)});const maxTrend=Math.max(1,...trend),pts=trend.map((v,i)=>(i*45+10)+','+(110-Math.round(v/maxTrend*84))).join(' ');
+const lineChart='<svg viewBox="0 0 310 135" class="trend-chart" aria-label="Recorded seven-day ticket sales trend"><defs><linearGradient id="chartfade" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#1645ff" stop-opacity=".38"/><stop offset="1" stop-color="#1645ff" stop-opacity="0"/></linearGradient></defs><path d="M10 110 L'+pts.replace(/ /g,' L')+' L280 125 L10 125 Z" fill="url(#chartfade)"/><polyline points="'+pts+'" fill="none" stroke="#ff791f" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>'+trend.map((v,i)=>'<circle cx="'+(i*45+10)+'" cy="'+(110-Math.round(v/maxTrend*84))+'" r="3.5" fill="#ff791f"/>').join('')+'<text x="8" y="132">Mon</text><text x="264" y="132">Sun</text></svg>';
 const issued=ticketRows.filter(r=>/issued/i.test(r.values[6]||'')).length,waiting=tickets-issued;
 const activity=[['✈️','Air Ticket Entry',ticketRows[0]?.values[0]||'No ticket'],['💳','Payment Collection',payRows[0]?.values[0]||'No payment'],['🛂','Visa Case Tracking',visaRows[0]?.values[0]||'No visa case'],['📋','Staff Tasks',taskRows[0]?.values[0]||'No task']];
-m.innerHTML='<div class="topline"><div><h1>Office Dashboard</h1><div class="muted">All departments • Management Overview</div></div><span class="pill">DEMO</span></div>'+
-'<div class="notice">Demo dashboard: figures are calculated from local sample/entered records where possible. The seven-day trend is illustrative. Not live company data.</div>'+
+m.innerHTML='<div class="topline"><div><h1>Office Dashboard</h1><div class="muted">All departments • Management Overview</div></div><span class="pill">SHARED RECORDS</span></div>'+
+'<div class="notice">Dashboard totals are calculated from records accessible to your account. Some modules may be restricted by staff permissions.</div>'+
 '<div class="dashboard-filters"><span class="filter-active">Today</span><span>This Week</span><span>This Month</span><span>Office Summary</span></div>'+
 '<div class="hero"><div class="muted">Recorded Ticket Sales</div><strong>'+money(sale)+'</strong><div class="tag">Gross Ticket Profit: '+money(gross)+'</div></div>'+
 statGrid(['Tickets Entered|'+tickets,'Gross Profit|'+money(gross),'Collected Payments|'+money(received),'Estimated Client Due|'+money(due),'Staff Present / Late|'+present+'/'+staffRows.length,'Active Visa Cases|'+activeVisa,'Office Expenses|'+money(expenses),'Supplier Outstanding|'+money(supplierDue)])+
-'<div class="dashboard-panel"><div class="row"><h2>Sales Trend</h2><span class="muted">7-day illustration</span></div>'+lineChart+'</div>'+
+'<div class="dashboard-panel"><div class="row"><h2>Sales Trend</h2><span class="muted">Last 7 days • recorded sales</span></div>'+lineChart+'</div>'+
 '<div class="dashboard-panel"><h2>Ticket Status Breakdown</h2>'+bar('Issued',issued,tickets,'#ff791f')+bar('Other / Pending',waiting,tickets,'#4276ff')+'<div class="muted">Based on ticket register entries</div></div>'+
 '<div class="dashboard-panel"><h2>Office Financial Overview</h2>'+bar('Sales',sale,Math.max(sale,cost,received,expenses,1),'#ff791f')+bar('Supplier Cost',cost,Math.max(sale,cost,received,expenses,1),'#4276ff')+bar('Collected',received,Math.max(sale,cost,received,expenses,1),'#3bc6a2')+bar('Expenses',expenses,Math.max(sale,cost,received,expenses,1),'#d7788a')+'</div>'+
 '<div class="dashboard-panel"><h2>Operations Snapshot</h2><div class="operations-grid">'+[['👥','Clients',clients.length,'Client Records'],['🛂','Visa Cases',visaRows.length,'Visa Case Tracking'],['📋','Open Tasks',taskRows.filter(r=>!/completed|done/i.test(r.values[4]||'')).length,'Staff Tasks'],['↩️','Refund Cases',refundRows.length,'Refund & Reissue']].map(x=>'<button class="operation-card" onclick="go('+JSON.stringify(x[3]).replace(/"/g,'&quot;')+')"><span>'+x[0]+'</span><b>'+x[2]+'</b><small>'+x[1]+'</small></button>').join('')+'</div></div>'+
@@ -140,7 +140,7 @@ statGrid(['Tickets Entered|'+tickets,'Gross Profit|'+money(gross),'Collected Pay
 '<h2>All Office Modules</h2><div class="tiles">'+modules.slice(1).map(x=>tile(x[0])).join('')+'</div>';
 }else{m.classList.remove('home-fixed');
 const x=byName[page]||modules[0],fs=fields[page]||['Name','Description','Status'];
-m.innerHTML=header(x)+'<div class="hero section-hero"><div class="muted">'+esc(x[4])+'</div><strong>'+esc(x[1])+' '+esc(x[2])+'</strong><div class="tag">'+esc(x[3])+'</div></div>'+statGrid(x[5].split(';'))+'<div class="notice">Sample data only • Records saved locally on this phone. No office server connected.</div><div class="row" style="margin:18px 0 10px"><h2 style="margin:0">'+esc(x[6])+'</h2><button class="action" onclick="toggleForm()">＋ New Entry</button></div><div class="toolbar"><input class="input" id="search" placeholder="Search '+esc(page)+'..." value="'+esc(searchText)+'" oninput="searchText=this.value;drawRecords()"></div><div id="entry" class="card entry-form" style="display:'+(showForm?'block':'none')+'"><h2>New '+esc(page)+' Record</h2><div class="formgrid">'+fs.map((f,i)=>'<div><label>'+esc(f)+'</label><input class="input" id="field'+i+'" placeholder="'+esc(f)+'"></div>').join('')+'<button class="action" onclick="saveEntry()">Save Demo Record</button><button class="ghost" onclick="toggleForm()">Cancel</button></div></div><div id="records"></div>';drawRecords();
+m.innerHTML=header(x)+'<div class="hero section-hero"><div class="muted">'+esc(x[4])+'</div><strong>'+esc(x[1])+' '+esc(x[2])+'</strong><div class="tag">'+esc(x[3])+'</div></div>'+statGrid(x[5].split(';'))+'<div class="notice">Office records are stored in the shared database. Access depends on your staff permissions.</div><div class="row" style="margin:18px 0 10px"><h2 style="margin:0">'+esc(x[6])+'</h2><button class="action" onclick="toggleForm()">＋ New Entry</button></div><div class="toolbar"><input class="input" id="search" placeholder="Search '+esc(page)+'..." value="'+esc(searchText)+'" oninput="searchText=this.value;drawRecords()"></div><div id="entry" class="card entry-form" style="display:'+(showForm?'block':'none')+'"><h2>New '+esc(page)+' Record</h2><div class="formgrid">'+fs.map((f,i)=>'<div><label>'+esc(f)+'</label><input class="input" id="field'+i+'" placeholder="'+esc(f)+'"></div>').join('')+'<button class="action" onclick="saveEntry()">Save Office Record</button><button class="ghost" onclick="toggleForm()">Cancel</button></div></div><div id="records"></div>';drawRecords();
 }
 m.scrollTop=page==='Home'?0:(positions[page]||0);
 }
@@ -154,12 +154,20 @@ async function saveEntry(){
  if(error)return alert('Save failed: '+error.message);
  showForm=false;await loadModuleRecords(module);alert('Saved to shared office database.');
 }
+async function loadDashboardRecords(){
+ if(!officeClient||!officeProfile)return;
+ const names=['Air Ticket Entry','Payment Collection','Staff Attendance','Visa Case Tracking','Staff Tasks','Ticket Sales & Profit','Office Expenses','Supplier Ledger','Refund & Reissue','Client Records'];
+ const responses=await Promise.all(names.map(module=>officeClient.from('office_records').select('id,payload,created_by,created_at').eq('module',module).is('deleted_at',null).order('created_at',{ascending:false})));
+ let failed=[];
+ responses.forEach((result,i)=>{if(result.error){failed.push(names[i]);records[names[i]]=[]}else records[names[i]]=(result.data||[]).map(x=>({id:x.id,values:x.payload?.values||[],created_by:x.created_by,created_at:x.created_at}))});
+ if(page==='Office Dashboard'){render();if(failed.length){const m=document.getElementById('main'),warning=document.createElement('div');warning.className='notice';warning.textContent='Some dashboard records could not load: '+failed.join(', ');m.prepend(warning)}}
+}
 async function loadModuleRecords(module){
  if(!officeClient||!officeProfile)return;
  const {data,error}=await officeClient.from('office_records').select('id,payload,created_by,created_at').eq('module',module).is('deleted_at',null).order('created_at',{ascending:false});
  if(error){console.error('Office records load failed',error);if(page===module){const m=document.getElementById('main');if(m){let warning=document.getElementById('officeLoadError');if(!warning){warning=document.createElement('div');warning.id='officeLoadError';warning.className='notice';m.prepend(warning)}warning.textContent='Unable to load shared records: '+error.message}}return}
  document.getElementById('officeLoadError')?.remove();
- records[module]=(data||[]).map(x=>({id:x.id,values:x.payload?.values||[],created_by:x.created_by}));
+ records[module]=(data||[]).map(x=>({id:x.id,values:x.payload?.values||[],created_by:x.created_by,created_at:x.created_at}));
  if(page===module){if(module==='Office Dashboard')render();else drawRecords();}
 }
 function exportWhatsAppContacts(){
@@ -239,7 +247,7 @@ async function removeEntry(id){
 const profileKey='ma-staff-directory-v1',chatKey='ma-office-chat-v1',marketingKey='ma-marketing-v1',noticeKey='ma-office-notice-v1';
 function loadLocal(k,fallback){try{return JSON.parse(localStorage.getItem(k)||'null')||fallback}catch(e){return fallback}}
 function saveLocal(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){alert('Local storage unavailable')}}
-let profiles=loadLocal(profileKey,[]),chatMessages=loadLocal(chatKey,[{name:'Nusrat Nasrin',text:'Good morning team! Please confirm today’s ticket bookings and pending client follow-ups.',time:'Demo • 9:15 AM'},{name:'Office Admin',text:'Noted. Today’s ticket entries and payment collection updates will be shared here.',time:'Demo • 9:18 AM'},{name:'Nusrat Nasrin',text:'Thank you. Please update the PNR status and send the daily sales summary before closing.',time:'Demo • 9:22 AM'}]),campaigns=loadLocal(marketingKey,[]),notice=loadLocal(noticeKey,{text:'WELCOME TO MA TOUR & TRAVELS • OFFICE ANNOUNCEMENTS • TAP TO EDIT',highlight:'IMPORTANT'});
+let profiles=loadLocal(profileKey,[]),chatMessages=loadLocal(chatKey,[{name:'Nusrat Nasrin',text:'Good morning team! Please confirm today’s ticket bookings and pending client follow-ups.',time:'Demo • 9:15 AM'},{name:'Office Admin',text:'Noted. Today’s ticket entries and payment collection updates will be shared here.',time:'Demo • 9:18 AM'},{name:'Nusrat Nasrin',text:'Thank you. Please update the PNR status and send the daily sales summary before closing.',time:'Demo • 9:22 AM'}]),campaigns=[],notice=loadLocal(noticeKey,{text:'WELCOME TO MA TOUR & TRAVELS • OFFICE ANNOUNCEMENTS • TAP TO EDIT',highlight:'IMPORTANT'});
 function refreshOffice(){
  const current=page||'Home';
  sessionStorage.setItem('maOfficeCurrentPage',current);
@@ -336,7 +344,7 @@ async function loadOfficeLive(){
   const {data,error}=await officeClient.from('office_staff').select('display_name,role,active').eq('user_id',officeUser.id).maybeSingle();
   if(!error&&data?.active){officeProfile=data;await refreshOfficeLive();officeChannel=officeClient.channel('ma-office-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'office_messages'},()=>refreshOfficeLive()).on('postgres_changes',{event:'INSERT',schema:'public',table:'office_notices'},()=>refreshOfficeLive()).subscribe();officePoll=setInterval(refreshOfficeLive,15000)}
  }
- if(officeProfile&&byName[page])await loadModuleRecords(page);if(document.getElementById('chatHistory')||document.getElementById('officeLoginBox'))renderChat(document.getElementById('main'));render();
+ if(officeProfile&&page==='Marketing Hub')await loadCampaigns();else if(officeProfile&&page==='Office Dashboard')await loadDashboardRecords();else if(officeProfile&&byName[page])await loadModuleRecords(page);if(document.getElementById('chatHistory')||document.getElementById('officeLoginBox'))renderChat(document.getElementById('main'));render();
  updateOfficeSignal();
 }
 async function refreshOfficeLive(){
@@ -406,8 +414,24 @@ function renderChat(m){if(!m)return;const header='<div class="row"><h1>💬 Team
 function drawChat(){const el=document.getElementById('chatHistory');if(!el)return;el.innerHTML=officeMessages.length?officeMessages.map(c=>'<div class="chat-bubble"><b>'+esc(c.sender_name)+'</b><p>'+esc(c.body)+'</p><small>'+new Date(c.created_at).toLocaleString()+'</small></div>').join(''):'<div class="empty">No shared messages yet.</div>';el.scrollTop=el.scrollHeight}
 async function sendChat(){if(!officeClient||!officeProfile)return;const input=document.getElementById('chatInput'),body=input?.value.trim();if(!body)return;const {error}=await officeClient.from('office_messages').insert({sender_id:officeUser.id,sender_name:officeProfile.display_name||officeUser.email||'Staff',body});if(error)return alert('Message not sent: '+error.message);input.value='';await refreshOfficeLive()}
 async function publishOfficeNotice(){if(!officeProfile||!['owner','admin','manager'].includes(officeProfile.role))return alert('Manager permission required');const body=prompt('Write shared office notice');if(!body?.trim())return;const {error}=await officeClient.from('office_notices').insert({author_id:officeUser.id,body:body.trim()});if(error)alert(error.message);else await refreshOfficeLive()}
-function renderMarketing(m){m.innerHTML='<div class="row"><h1>📣 Marketing Hub</h1><button class="action" onclick="marketingModal()">+ Campaign</button></div><div class="muted">Plan campaigns, record leads and track follow-ups on this device</div><div class="stats" style="margin-top:14px"><div class="card"><div class="muted">Campaigns</div><div class="statvalue">'+campaigns.length+'</div></div><div class="card"><div class="muted">Leads</div><div class="statvalue">'+campaigns.reduce((a,c)=>a+(Number(c.leads)||0),0)+'</div></div></div>'+ (campaigns.length?campaigns.map((c,i)=>'<div class="record"><strong>'+esc(c.title)+'</strong><div class="record-line"><span>Channel</span><b>'+esc(c.channel)+'</b></div><div class="record-line"><span>Leads</span><b>'+esc(c.leads)+'</b></div><div class="record-line"><span>Status</span><b>'+esc(c.status)+'</b></div><div class="record-line"><span>Next Follow-up</span><b>'+esc(c.followup)+'</b></div><button class="ghost" onclick="marketingModal('+i+')">Edit</button></div>').join(''):'<div class="empty">No campaigns yet. Create a marketing campaign.</div>')}
+function renderMarketing(m){m.innerHTML='<div class="row"><h1>📣 Marketing Hub</h1><button class="action" onclick="marketingModal()">+ Campaign</button></div><div class="muted">Shared campaigns, leads and follow-ups • visible to authorized office staff</div><div class="stats" style="margin-top:14px"><div class="card"><div class="muted">Campaigns</div><div class="statvalue">'+campaigns.length+'</div></div><div class="card"><div class="muted">Leads</div><div class="statvalue">'+campaigns.reduce((a,c)=>a+(Number(c.leads)||0),0)+'</div></div></div>'+ (campaigns.length?campaigns.map((c,i)=>'<div class="record"><strong>'+esc(c.title)+'</strong><div class="record-line"><span>Channel</span><b>'+esc(c.channel)+'</b></div><div class="record-line"><span>Leads</span><b>'+esc(c.leads)+'</b></div><div class="record-line"><span>Status</span><b>'+esc(c.status)+'</b></div><div class="record-line"><span>Next Follow-up</span><b>'+esc(c.followup)+'</b></div><button class="ghost" onclick="marketingModal('+i+')">Edit</button></div>').join(''):'<div class="empty">No campaigns yet. Create a marketing campaign.</div>')}
 function marketingModal(i=-1){const c=campaigns[i]||{};modal('Marketing Campaign','<div class="formgrid">'+[['Campaign Name','title'],['Channel / Platform','channel'],['Lead Count','leads'],['Status','status'],['Next Follow-up','followup']].map(([label,k])=>'<label>'+label+'<input class="input" id="campaign_'+k+'" value="'+esc(c[k]||'')+'"></label>').join('')+'<button class="action" onclick="saveCampaign('+i+')">Save Campaign</button></div>')}
-function saveCampaign(i){const c={};for(const k of ['title','channel','leads','status','followup'])c[k]=document.getElementById('campaign_'+k).value.trim();if(!c.title)return alert('Enter campaign name');if(i>=0)campaigns[i]=c;else campaigns.push(c);saveLocal(marketingKey,campaigns);closeModal();renderMarketing(document.getElementById('main'))}
+async function loadCampaigns(){
+ if(!officeClient||!officeProfile)return;
+ const {data,error}=await officeClient.from('office_records').select('id,payload,created_by').eq('module','Marketing Hub').is('deleted_at',null).order('created_at',{ascending:false});
+ if(error){alert('Unable to load shared campaigns: '+error.message);return}
+ campaigns=(data||[]).map(r=>({id:r.id,...(r.payload?.campaign||{})}));
+ if(page==='Marketing Hub')renderMarketing(document.getElementById('main'));
+}
+async function saveCampaign(i){
+ if(!officeClient||!officeProfile||!officeUser)return alert('Staff login required');
+ const c={};for(const k of ['title','channel','leads','status','followup'])c[k]=document.getElementById('campaign_'+k).value.trim();
+ if(!c.title)return alert('Enter campaign name');
+ const old=campaigns[i];
+ const query=old?.id?officeClient.from('office_records').update({payload:{campaign:c},updated_by:officeUser.id}).eq('id',old.id):officeClient.from('office_records').insert({module:'Marketing Hub',payload:{campaign:c},created_by:officeUser.id});
+ const {error}=await query;
+ if(error)return alert('Campaign save failed: '+error.message);
+ closeModal();await loadCampaigns();
+}
 renderTicker();render();initOfficeLive();
 </script></body></html>
