@@ -97,7 +97,16 @@ const extraModules=[['Staff Directory','👥','Team','Staff contacts and profile
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let page=decodeURIComponent(location.hash.slice(1))||sessionStorage.getItem('maOfficeCurrentPage')||'Home',showForm=false,searchText='',positions={};
 const storeKey='ma-travels-office-demo-v2';
-let records={};
+let records={},officeEditPermissions={};
+function canEditOfficeModule(module){return ['owner','admin'].includes(officeProfile?.role)||officeEditPermissions[module]===true}
+async function loadMyOfficePermissions(){
+ officeEditPermissions={};
+ if(!officeClient||!officeUser||!officeProfile)return;
+ const {data,error}=await officeClient.from('office_module_permissions').select('module,can_edit').eq('user_id',officeUser.id);
+ if(error){console.error('Permission load failed:',error.message);return}
+ for(const row of data||[])officeEditPermissions[row.module]=!!row.can_edit;
+}
+
 function list(n){if(!records[n])records[n]=[];return records[n]}
 function persist(){}
 function go(n){if(n!=='Home'&&n!=='Staff Permissions'&&!byName[n])return;positions[page]=document.getElementById('main').scrollTop;if(page==='Home'&&n!=='Home'&&n!=='Office Dashboard')lastSelectedModule=n;page=n;sessionStorage.setItem('maOfficeCurrentPage',n);showForm=false;searchText='';history.pushState({page:n},'', '#'+encodeURIComponent(n));render();if(officeProfile&&n==='Marketing Hub')loadCampaigns();else if(officeProfile&&n==='Office Dashboard')loadDashboardRecords();else if(officeProfile&&byName[n]&&!['Home','Team Chat','Staff Directory','Staff Permissions'].includes(n))loadModuleRecords(n)}
@@ -225,10 +234,11 @@ function drawRecords(){
  const rs=list(page).filter(r=>r.values.join(' ').toLowerCase().includes(q));
  const manager=['owner','admin'].includes(officeProfile?.role);
  const bulk=page==='Client Records'&&manager?'<button class="action" onclick="exportWhatsAppContacts()">Export WhatsApp Contacts (.vcf)</button><button class="ghost" onclick="startFreeWhatsAppBroadcast()">Message Assistant</button><p class="muted">Free broadcast: import opted-in contacts into your phone, then create a WhatsApp broadcast list. WhatsApp may require recipients to have saved your number. Sending directly from this website is not supported.</p>':'';
- el.innerHTML=bulk+'<div class="muted" style="margin:8px 0">'+rs.length+' records</div>'+(rs.length?rs.map(r=>'<div class="record"><div class="row"><strong>'+esc(r.values[0])+'</strong><span>'+(officeProfile?'<button class="ghost" onclick="editOfficeRecord('+JSON.stringify(r.id).replace(/"/g,'&quot;')+')">Edit</button>':'')+(manager?'<button class="ghost" onclick="removeEntry('+JSON.stringify(r.id).replace(/"/g,'&quot;')+')">Delete</button>':'')+'</span></div>'+fs.slice(1).map((f,i)=>r.values[i+1]?'<div class="record-line"><span>'+esc(f)+'</span><b>'+esc(r.values[i+1])+'</b></div>':'').join('')+(page==='Client Records'&&manager?'<button class="ghost" onclick="shareClientWhatsApp('+JSON.stringify(r.id).replace(/"/g,'&quot;')+')">WhatsApp</button>':'')+'<span class="pill">Shared Office Record</span></div>').join(''):'<div class="empty">No records. Tap + New Entry to create one.</div>');
+ el.innerHTML=bulk+'<div class="muted" style="margin:8px 0">'+rs.length+' records</div>'+(rs.length?rs.map(r=>'<div class="record"><div class="row"><strong>'+esc(r.values[0])+'</strong><span>'+(canEditOfficeModule(page)?'<button class="ghost" onclick="editOfficeRecord('+JSON.stringify(r.id).replace(/"/g,'&quot;')+')">Edit</button>':'')+(manager?'<button class="ghost" onclick="removeEntry('+JSON.stringify(r.id).replace(/"/g,'&quot;')+')">Delete</button>':'')+'</span></div>'+fs.slice(1).map((f,i)=>r.values[i+1]?'<div class="record-line"><span>'+esc(f)+'</span><b>'+esc(r.values[i+1])+'</b></div>':'').join('')+(page==='Client Records'&&manager?'<button class="ghost" onclick="shareClientWhatsApp('+JSON.stringify(r.id).replace(/"/g,'&quot;')+')">WhatsApp</button>':'')+'<span class="pill">Shared Office Record</span></div>').join(''):'<div class="empty">No records. Tap + New Entry to create one.</div>');
 }
 async function editOfficeRecord(id){
  if(!officeClient||!officeProfile)return alert('Sign in first');
+ if(!canEditOfficeModule(page))return alert('Editing this module requires manager approval.');
  const row=list(page).find(x=>x.id===id);if(!row)return;
  const fs=fields[page]||['Name','Description','Status'];
  const updated=[];
@@ -345,7 +355,7 @@ async function loadOfficeLive(){
  officeProfile=null;officeMessages=[];officeNotices=[];
  if(officeUser){
   const {data,error}=await officeClient.from('office_staff').select('display_name,role,active').eq('user_id',officeUser.id).maybeSingle();
-  if(!error&&data?.active){officeProfile=data;await refreshOfficeLive();officeChannel=officeClient.channel('ma-office-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'office_messages'},()=>refreshOfficeLive()).on('postgres_changes',{event:'INSERT',schema:'public',table:'office_notices'},()=>refreshOfficeLive()).on('postgres_changes',{event:'*',schema:'public',table:'office_records'},()=>{if(page==='Marketing Hub')loadCampaigns();else if(page==='Office Dashboard')loadDashboardRecords();else if(byName[page]&&!['Home','Staff Directory','Team Chat','Staff Permissions'].includes(page))loadModuleRecords(page)}).on('postgres_changes',{event:'*',schema:'public',table:'office_notice_style'},()=>refreshOfficeLive()).subscribe();officePoll=setInterval(refreshOfficeLive,15000)}
+  if(!error&&data?.active){officeProfile=data;await loadMyOfficePermissions();await refreshOfficeLive();officeChannel=officeClient.channel('ma-office-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'office_messages'},()=>refreshOfficeLive()).on('postgres_changes',{event:'INSERT',schema:'public',table:'office_notices'},()=>refreshOfficeLive()).on('postgres_changes',{event:'*',schema:'public',table:'office_records'},()=>{if(page==='Marketing Hub')loadCampaigns();else if(page==='Office Dashboard')loadDashboardRecords();else if(byName[page]&&!['Home','Staff Directory','Team Chat','Staff Permissions'].includes(page))loadModuleRecords(page)}).on('postgres_changes',{event:'*',schema:'public',table:'office_notice_style'},()=>refreshOfficeLive()).subscribe();officePoll=setInterval(refreshOfficeLive,15000)}
  }
  if(officeProfile&&page==='Marketing Hub')await loadCampaigns();else if(officeProfile&&page==='Office Dashboard')await loadDashboardRecords();else if(officeProfile&&byName[page])await loadModuleRecords(page);if(document.getElementById('chatHistory')||document.getElementById('officeLoginBox'))renderChat(document.getElementById('main'));render();
  updateOfficeSignal();
@@ -433,6 +443,7 @@ async function saveCampaign(i){
  const c={};for(const k of ['title','channel','leads','status','followup'])c[k]=document.getElementById('campaign_'+k).value.trim();
  if(!c.title)return alert('Enter campaign name');
  const old=campaigns[i];
+ if(old?.id&&!canEditOfficeModule('Marketing Hub'))return alert('Campaign editing requires manager approval.');
  const query=old?.id?officeClient.from('office_records').update({payload:{campaign:c},updated_by:officeUser.id}).eq('id',old.id):officeClient.from('office_records').insert({module:'Marketing Hub',payload:{campaign:c},created_by:officeUser.id});
  const {error}=await query;
  if(error)return alert('Campaign save failed: '+error.message);
